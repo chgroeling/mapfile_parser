@@ -98,6 +98,34 @@ def test_generator_placements_normal():
     assert res_page_tables[1] == 805289984  # address: 0x2fffc000
     assert res_page_tables[2] == 16384  # size: 0x4000
 
+def test_generator_placements_normal():
+    """Übliche Daten die der Methode generator_placements übergeben werden"""
+
+    test_data = [
+        "",
+        " *(.mmu_table)",
+        """ .mmu_table     0x2fff8000     0x4000 CMakeFiles/EDESapp.dir/drivers/a7/mmu.cpp.obj
+                0x2fff8000                drivers::a7::Mmu::translationTable""",
+        " *(.page_tables)",
+        """ .page_tables   0x2fffc000     0x4000 CMakeFiles/EDESapp.dir/drivers/a7/mmu.cpp.obj
+                0x2fffc000                drivers::a7::Mmu::pageTables""",
+    ]
+
+    generator = MapfileParser.generator_placements(test_data)
+    result_generator = list(generator)
+    assert len(result_generator) == 2
+
+    res_mmu_table = result_generator[0]
+    assert res_mmu_table[0] == ".mmu_table"
+    assert res_mmu_table[1] == 805273600  # address: 0x2fff8000
+    assert res_mmu_table[2] == 16384  # size: 0x4000
+
+    res_page_tables = result_generator[1]
+    assert res_page_tables[0] == ".page_tables"
+    assert res_page_tables[1] == 805289984  # address: 0x2fffc000
+    assert res_page_tables[2] == 16384  # size: 0x4000
+    assert res_page_tables[3] == "CMakeFiles/EDESapp.dir/drivers/a7/mmu.cpp.obj"
+    assert res_page_tables[4] == "0x2fffc000"
 
 def test_generator_subsections_fill():
     """Eine fill Sektion muss speziell behandelt werden. Dieser Test überprüft dies."""
@@ -128,6 +156,28 @@ def test_generator_placements_fill():
     assert res_fill[1] == 3226923713  # address: 0xc056f2c1
     assert res_fill[2] == 3  # size: 0x3
     assert res_fill[3] == ""
+
+def test_generator_placements_byte():
+    test_data = ["                0xc0000344        0x1 BYTE 0xaa"]
+
+    generator = MapfileParser.generator_placements(test_data)
+    result_generator = list(generator)
+    assert len(result_generator) == 1
+
+    res_fill = result_generator[0]
+    assert res_fill[0] == "*empty*"
+    assert res_fill[1] == 3221226308  # address: 0xc0000344
+    assert res_fill[2] == 1  # size: 0x1
+    assert res_fill[3] == "BYTE 0xaa"
+
+def test_generator_placements_fill_mask():
+
+    test_data = [""" FILL mask 0x00
+                0xc05e3a00                __tdata_start__ = ."""]
+
+    generator = MapfileParser.generator_placements(test_data)
+    result_generator = list(generator)
+    assert len(result_generator) == 0
 
 
 def test_generator_remove_reused_placements_1times():

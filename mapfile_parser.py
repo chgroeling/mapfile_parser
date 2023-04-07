@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
+
 import re
-import pprint
+import logging
 
 
 class MapfileParser:
@@ -76,22 +78,34 @@ class MapfileParser:
             # " COMMON         0xc056fd60       0x18 C:/workspace/edes/checkout/external/opes_root/opes/lib/STM32MP1A7_embOS/libOPEScored.a(IP_ARP.c.obj)"
             #
             # Man beachte das vorangestellte Leerzeichen.
-            regex = r"^\s([\*\.\w]+)\s+(0x\w+)\s+(0x\w+)\s(.+)?$"
+            regex = r"^\s([\*\.\w\s]+)\s+(0x\w+)[^\S\r\n]+(0x\w+)\s(.+)?\s*\n?\s*(0x\w+)?\s*(.+)?"
 
             regex_placement = re.compile(regex, re.MULTILINE)
             matches = regex_placement.findall(placement)
-
 
             # Das Ergebniss wird als Tuple zurückgegeben. Die Einträge enthalten folgenden
             # 0 - name der Objektes
             # 1 - Address
             # 2 - Size/Größe
             # 3 - Dateiname aus dem das Objekt entnommen wurde
-            conversions = ([i[0], int(i[1], 16), int(i[2], 16), i[3]] for i in matches)
+            # 4 - (optional) Addresse in der nächsten Zeile
+            # 5 - (optional) Klassenname
+            conversions = (
+                [i[0].strip(), int(i[1], 16), int(i[2], 16), i[3], i[4], i[5]]
+                for i in matches
+            )
             ret = list(conversions)
 
-            prev = None
             for i in ret:
+                if i[0] == "":
+                    i[0] = "*empty*"
+                
+                #if i[4] != "":
+                #    i4_int = int(i[4],16)
+
+                    # check if the address of the first and the second line match. If not continue
+                #    if i4_int != i[1]:
+                #        continue
                 yield i
 
     @staticmethod
@@ -178,50 +192,92 @@ class MapfileParser:
 
             prev = i
 
-    def get_section_list(self, ignores = set()):
-        """ Gibt einer Liste aller Sektionen zurück die gefunden wurden. Das Argument ignores kann verwendetet werden
-        um bestimmte Sektionen bei Generierung der Liste zu ignorieren und nicht auszunehmen. Es handelt sich um 
+    def get_section_list(self, ignores=set()):
+        """Gibt einer Liste aller Sektionen zurück die gefunden wurden. Das Argument ignores kann verwendetet werden
+        um bestimmte Sektionen bei Generierung der Liste zu ignorieren und nicht auszunehmen. Es handelt sich um
         set der die Namen der zu ignorierenden Sektion enthält"""
         section_list = []
         for name, info in self._sec_dict.items():
             if name not in ignores:
-                section_list.append([name, info['address'], info['size']])
+                section_list.append([name, info["address"], info["size"]])
 
         return section_list
 
-    def get_placement_list_by_regex_on_file(self, regex):
+    def get_class_info(self):
+        """ Return readable info of every placement as List.
+
+        0. Status
+        1. ClassInfo (if exists)
+        2. Address
+        3. Size
+        4. Section
+        5. objfile
+        6. objname
+        
+        """
         result = []
-        regex_compiled = re.compile(regex)
-        for name, info in self._sec_dict.items():
-            for placement in info['placements']:
-                file = placement[3]
-                if regex_compiled.search(file):
-                    result.append(placement)
+
+        for section, info in self._sec_dict.items():
+            for placement in info["placements"]:
+                classinfo = placement[5]
+                size = placement[2]
+                address = placement[1]
+                objfile = placement[3]
+                objname = placement[0]
+
+                address2nd = placement[4]
+                status=""
+                if (address2nd != ""):
+
+                    address_2nd_int = int(address2nd,16)
+
+                    if address != address_2nd_int:
+                        status = "\"ALTERNATE_CLASSINFO\""
+                        #classinfo = ""
+
+                if classinfo == "":
+                    status = "\"MISSING_CLASSINFO\""
+                
+                if objfile == "00":
+                    objfile =""
+
+                result.append([status, classinfo, address, size, section, objfile, objname])
         return result
-
-
 
     def parse(self):
 
         # Extrahiere die Memory Map aus dem Map-file.
         _, placement, _ = self.extract_memory_map(self._mapfile)
+
         sections = MapfileParser.split_sections(placement)
 
         sections_generator = MapfileParser.generator_sections(sections)
 
-
         self._sec_dict = {}
         for *section, placements in sections_generator:
+            section_name = section[0]
+            section_address = section[1]
+            section_size = section[2]
+
+            logging.info("Going through section: %s", section_name)
+
             # MapfileParser.helper_check_integrity(placements)
 
             calculated_size = MapfileParser.calculate_size_of_placement_list(placements)
-            size = section[2]
-            assert size == calculated_size
 
-            self._sec_dict[section[0]] = {
-                "address": section[1],
-                "size": size,
+            if section_size != calculated_size:
+                logging.error(
+                    "Section size is not equal to calculated size {section_name:%s, section_size:%i, calculated_size:%i}",
+                    section_name,
+                    section_size,
+                    calculated_size,
+                )
+                logging.debug("Placements: %s", placements)
+
+            logging.info("Placements %s", placements)
+            self._sec_dict[section_name] = {
+                "address": section_address,
+                "size": section_size,
                 "placements": placements,
             }
 
-      
